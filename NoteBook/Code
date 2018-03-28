@@ -1,0 +1,169 @@
+
+1. This code is for creating dataframe and table
+
+	%spark.pyspark
+	from pyspark.sql.types import StructType, StructField, StringType, IntegerType
+	from pyspark.sql.functions import *
+
+	# import file
+	s = sc.textFile('/home/vidit/Developments/BigData/Test/all.txt')
+
+	# Schema for table
+	gameSchema = StructType([StructField("ID", StringType(), False),StructField("Visitor Team", StringType(), False),StructField("Home Team", StringType(), False),StructField("date", StringType(), False),StructField("starttime", StringType(), False), StructField("daynight", StringType(), False), StructField("Temperature", StringType(), False), StructField("winddir", StringType(), False), StructField("windspeed", StringType(), False),StructField("fieldcond", StringType(), False),StructField("precip", StringType(), False),StructField("sky", StringType(), False),StructField("attendance", StringType(), False)])
+
+	# print gameSchema
+	b = s.map(lambda line:line.split(','))
+	spark = SparkSession.builder.master("local").appName("Word Count").config("spark.some.config.option", "some-value").getOrCreate()
+
+	# creating DataFrame
+	gamedf = spark.createDataFrame(b,gameSchema)
+
+	gamedf.createOrReplaceTempView("BaseBall_all")
+
+
+	gamedf.describe().show()
+
+
+2. This code is for processing our data to fit
+
+	%spark.pyspark
+	import pandas as pd
+	from sklearn import linear_model
+	from sklearn.model_selection import train_test_split
+	import numpy as np
+	from datetime import date
+
+	teams = ['ANA', 'ARI', 'ATL', 'BAL', 'BOS', 'CHA', 'CHN', 'CIN', 'CLE', 'COL', 'DET', 'FLO', 'HOU', 'KCA', 'LAN', 'MIL', 'MIA', 'MIN', 'NYA', 'NYN', 'OAK', 'PHI', 'PIT', 'SDN', 'SEA', 'SFN', 'SLN', 'TBA', 'TEX', 'TOR']
+
+	months = ['jan', 'feb', 'march', 'april' , 'may' , 'june' , 'july', 'august', 'sept', 'oct', 'nov', 'dec']
+	regr = linear_model.LinearRegression()
+
+	X_baseball = gamedf.toPandas()
+
+	X = X_baseball
+	X = X.loc[X['attendance'] != '0']
+
+	X['starttime'] = X['starttime'].map(lambda x: x.split(':')).map(lambda x:x[0])
+
+	X['daynight'] = X['daynight'].map(lambda x: 1 if x == 'day' else 0)
+
+	X.starttime = X.starttime.astype(float)
+
+	X['Temperature'] = X['Temperature'].map(lambda x: float(x))
+	maxtemp= float(X['Temperature'].max())
+	mintemp= float(X['Temperature'].min())
+	X['Temperature'] = X['Temperature'].map(lambda x: (float(x)-mintemp)/(maxtemp-mintemp))
+
+	X['starttime'] = X['starttime'].map(lambda x: float(x))
+	maxtemp= float(X['starttime'].max())
+	mintemp= float(X['starttime'].min())
+	X['starttime'] = X['starttime'].map(lambda x: (float(x)-mintemp)/(maxtemp-mintemp))
+
+	X['windspeed'] = X['windspeed'].map(lambda x: float(x))
+	maxspeed= float(X['windspeed'].max())
+	minspeed= float(X['windspeed'].min())
+	X['windspeed'] = X['windspeed'].map(lambda x: (float(x)-minspeed)/(maxspeed-minspeed))
+
+
+
+	X['rain'] = (X['precip'] == 'rain').astype(int)
+	X['rain'] = (X['precip'] == 'drizzle').astype(int)
+
+
+	for team in teams:
+	    h ='H_'+team
+	    v ='V_'+team
+	    X[v] = (X['Visitor Team'] == team).astype(int)
+	    X[h] = (X['Home Team'] == team).astype(int)
+
+	X['sunny'] = (X['sky'] == 'sunny').astype(int)
+	X['cloudy'] = (X['sky'] == 'cloudy').astype(int)
+	X['dome'] = (X['sky'] == 'dome').astype(int)
+	X['overcast'] = (X['sky'] == 'overcast').astype(int)
+
+
+
+	X = X.drop('sky',1)
+	X = X.drop('Visitor Team',1)
+	X = X.drop('Home Team',1)
+	X = X.drop('winddir',1)
+	X = X.drop('fieldcond',1)
+	X = X.drop('precip',1)
+	X = X.drop('ID',1)
+
+
+
+
+	X.attendance = X.attendance.astype(int)
+
+	X.Temperature = X.Temperature.astype(float)
+	X.windspeed = X.windspeed.astype(float)
+
+	X=X.sort_values(['date'], ascending=[True])
+	X = X.reset_index(drop=True)
+
+	X['month'] = X['date'].map(lambda x: x.split('/')).map(lambda x:x[1])
+	X.month = X.month.astype(int) 
+	 
+	for x in xrange(len(months)-1):
+	    X[months[x]] = (X['month'] == x+1).astype(int)
+
+
+
+	X = X.drop('month',1)
+
+
+
+	X_train, X_test = train_test_split(X, test_size = 0.7)
+
+
+	X_train = X_train.sort_values(['date'], ascending=[True])
+	X_test = X_test.sort_values(['date'], ascending=[True])
+	X_test = X_test.drop('date',1)
+	X_train = X_train.drop('date',1)
+
+
+	Y_train=X_train['attendance']
+	X_train = X_train.drop('attendance',1)
+
+	Y_test=X_test['attendance']
+	X_test = X_test.drop('attendance',1)
+
+
+
+
+	print(X_test)
+	print(Y_test)
+
+	print(X_train)
+	print(Y_train)
+
+
+3. This code is for prediction and visualizing
+
+	%spark.pyspark
+	regr.fit(X_test,Y_test)
+	print 'Estimated intercept coefficient:',regr.intercept_
+	print 'Number of coefficients:', len(regr.coef_)
+	print('Coefficients: \n', regr.coef_)
+
+	Y_predict = regr.predict(X_train)
+
+	print(Y_predict[:5])
+
+	print(Y_train[:5])
+	print("Mean squared error: %.2f" % np.mean((Y_predict - Y_train) ** 2))
+	print('Variance score: %.2f' % regr.score(X_train, Y_train))
+
+	# Plot outputs
+	plt.scatter(X_train.Temperature,Y_train,  color='black')
+	plt.plot(X_train.Temperature, Y_predict, color='blue',
+		 linewidth=3)
+
+	plt.xticks(())
+	plt.yticks(())
+
+	plt.show()
+
+
+
